@@ -4,51 +4,76 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import datetime
+from calendar import monthrange
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
-    page_title="Simulador DCA Sniper Pro",
-    page_icon="🚀",
+    page_title="Simulador DCA Pro: Target LTV",
+    page_icon="🧠",
     layout="wide"
 )
 
-# --- TÍTULO Y DESCRIPCIÓN ---
-st.title("💰 Simulador Estratégico: DCA Sniper + Defensa LTV")
+st.title("🧠 Simulador DCA Institucional: Target LTV & Gestión de Riesgo")
 st.markdown("""
-Esta aplicación simula una estrategia de acumulación de Bitcoin que utiliza **apalancamiento dinámico** según el drawdown del mercado y un **sistema de defensa** basado en el LTV para evitar liquidaciones.
+Esta estrategia gestiona el **LTV Global del Portafolio**. No se apalanca por compra, sino que ajusta la deuda total para mantener un % de riesgo objetivo según la caída del mercado.
 """)
 
 # ==========================================
-# 🎛️ BARRA LATERAL (CONFIGURACIÓN)
+# 🎛️ PANEL DE CONTROL (SIDEBAR)
 # ==========================================
+
 st.sidebar.header("1. Configuración General")
+TICKER = st.sidebar.text_input("Ticker", value="BTC-USD")
+FECHA_INICIO = st.sidebar.date_input("Fecha Inicio", value=datetime.date(2021, 10, 1))
+INVERSION_INICIAL = st.sidebar.number_input("Inversión Inicial ($)", value=1000)
+COSTE_DEUDA_APR = st.sidebar.number_input("Coste Deuda (APR %)", value=5.0) / 100
 
-TICKER = st.sidebar.text_input("Ticker (Yahoo Finance)", value="BTC-USD")
-FECHA_INICIO = st.sidebar.date_input("Fecha de Inicio", value=datetime.date(2021, 11, 1))
-COSTE_DEUDA_APR = st.sidebar.number_input("Coste Deuda (APR %)", value=5.0, step=0.5) / 100
+# --- FRECUENCIA Y APORTACIONES ---
+st.sidebar.header("2. Aportaciones Periódicas")
+FRECUENCIA = st.sidebar.selectbox("Frecuencia", ["Semanal", "Mensual"])
 
-st.sidebar.header("2. Capital Semanal")
-MONTO_SEMANAL_BASE = st.sidebar.number_input("Inversión Base ($)", value=25)
-MONTO_DEFENSA = st.sidebar.number_input("Inversión Defensa ($)", value=50)
+if FRECUENCIA == "Semanal":
+    DIA_SEMANA = st.sidebar.selectbox("Día de la semana", 
+                                      ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"], index=0)
+    mapa_dias = {"Lunes":0, "Martes":1, "Miércoles":2, "Jueves":3, "Viernes":4, "Sábado":5, "Domingo":6}
+    DIA_SEMANA_IDX = mapa_dias[DIA_SEMANA]
+else:
+    DIA_MES = st.sidebar.slider("Día del mes", 1, 31, 1, help="Si el mes tiene menos días, se usará el último día del mes.")
 
-st.sidebar.header("3. Niveles de Apalancamiento (x)")
-LEV_SAFE = st.sidebar.slider("Safe (Máximos)", 1.0, 1.5, 1.0, step=0.05)
-LEV_MANTENIMIENTO = st.sidebar.slider("Medio (Caída leve)", 1.0, 2.0, 1.25, step=0.05)
-LEV_AGRESIVO = st.sidebar.slider("Agresivo (Caída fuerte)", 1.0, 3.0, 1.75, step=0.05)
-LEV_DEFENSA = 1.0 # Fijo por seguridad
+APORTACION_BASE = st.sidebar.number_input("Aportación Base ($)", value=50)
+UMBRAL_INICIO_DCA = st.sidebar.slider("Iniciar DCA tras Drawdown > (%)", 0.05, 0.50, 0.15)
 
-st.sidebar.header("4. Umbrales (%)")
-UMBRAL_ACTIVACION = st.sidebar.slider("Esperar caída inicial del...", 0.0, 0.5, 0.20)
-UMBRAL_SAFE = st.sidebar.slider("Límite Zona Segura (DD < x)", 0.0, 0.10, 0.05)
-UMBRAL_AGRESIVO = st.sidebar.slider("Límite Zona Agresiva (DD > x)", 0.10, 0.50, 0.20)
-UMBRAL_LTV_DEFENSA = st.sidebar.slider("🚨 Trigger DEFENSA (LTV > x)", 0.30, 0.60, 0.40)
-LTV_LIQUIDACION = 0.75
+# --- APALANCAMIENTO (TARGET LTV) ---
+st.sidebar.header("3. Estrategia de Apalancamiento")
+st.sidebar.info("Estos valores definen el % de Deuda sobre el Total del Portafolio.")
+
+TARGET_LTV_BASE = st.sidebar.slider("Target LTV Base (%)", 0.0, 0.50, 0.25)
+TARGET_LTV_AGRESIVO = st.sidebar.slider("Target LTV Agresivo (%)", 0.0, 0.60, 0.40)
+UMBRAL_DD_AGRESIVO = st.sidebar.slider("Activar Agresivo si DD > (%)", 0.10, 0.50, 0.30)
+
+# --- SEGURIDAD ---
+st.sidebar.header("4. Filtros de Seguridad (Safe Mode)")
+st.sidebar.markdown("Se usa apalancamiento 0 (compra cash) si:")
+UMBRAL_DD_SAFE = st.sidebar.slider("Drawdown es menor a (%)", 0.0, 0.10, 0.05)
+UMBRAL_LTV_SAFE = st.sidebar.slider("LTV Actual supera el (%)", 0.10, 0.60, 0.40)
+
+# --- DEFENSA Y LIQUIDACIÓN ---
+st.sidebar.header("5. Defensa y Liquidación")
+LIQ_THRESHOLD = st.sidebar.number_input("Liquidation Threshold (%)", value=75.0) / 100
+PCT_UMBRAL_DEFENSA = st.sidebar.slider("Activar Defensa al % del Liq. Threshold", 0.50, 0.95, 0.80)
+# Calculamos el LTV trigger real (ej: 80% de 75% = 60%)
+TRIGGER_DEFENSA_LTV = LIQ_THRESHOLD * PCT_UMBRAL_DEFENSA
+MULTIPLO_DEFENSA = st.sidebar.number_input("Multiplicador Aportación en Defensa", value=2.0)
+
+# --- EXTRAORDINARIAS ---
+st.sidebar.header("6. Aportaciones Extraordinarias")
+UMBRAL_DD_EXTRA = st.sidebar.slider("Aportar Extra si DD > (%)", 0.30, 0.90, 0.60)
+MONTO_EXTRA = st.sidebar.number_input("Monto Extra ($)", value=100)
 
 # ==========================================
-# ⚙️ LÓGICA DE SIMULACIÓN
+# ⚙️ FUNCIONES AUXILIARES
 # ==========================================
 
-# Función para descargar datos (con caché para que sea rápido)
 @st.cache_data
 def descargar_datos(ticker, inicio):
     data = yf.download(ticker, start=inicio, progress=False)['Close']
@@ -57,223 +82,283 @@ def descargar_datos(ticker, inicio):
     data = data.asfreq('D', method='ffill')
     return data
 
-# Botón de Ejecución
-if st.sidebar.button("🚀 EJECUTAR SIMULACIÓN", type="primary"):
-    
-    with st.spinner('Descargando datos y procesando estrategia...'):
-        # Descarga
-        try:
-            data = descargar_datos(TICKER, FECHA_INICIO)
-        except Exception as e:
-            st.error(f"Error descargando datos: {e}")
-            st.stop()
+def es_dia_de_compra(fecha, frecuencia, dia_semana_idx, dia_mes_target):
+    """Determina si hoy toca comprar según la configuración compleja de fechas."""
+    if frecuencia == "Semanal":
+        return fecha.dayofweek == dia_semana_idx
+    else:
+        # Lógica Mensual Inteligente
+        # Obtenemos el último día de este mes en concreto
+        _, ultimo_dia_mes = monthrange(fecha.year, fecha.month)
+        # El día objetivo es el elegido por el usuario O el último día posible
+        target = min(dia_mes_target, ultimo_dia_mes)
+        return fecha.day == target
 
-        # Variables Iniciales
+def calcular_deuda_para_target_ltv(colateral_actual, deuda_actual, aportacion_cash, target_ltv):
+    """
+    Calcula cuánta deuda NUEVA tomar para que el LTV global sea igual al Target.
+    Fórmula: (Deuda_Vieja + Deuda_Nueva) / (Colateral_Viejo + Cash + Deuda_Nueva) = TargetLTV
+    """
+    # Despejando Deuda_Nueva (D_new):
+    # Target * (C_old + Cash + D_new) = D_old + D_new
+    # Target*C_old + Target*Cash - D_old = D_new * (1 - Target)
+    
+    numerador = target_ltv * (colateral_actual + aportacion_cash) - deuda_actual
+    denominador = 1 - target_ltv
+    
+    if denominador == 0: return 0
+    deuda_necesaria = numerador / denominador
+    
+    # Si sale negativa, significa que ya estamos por encima del target LTV.
+    # En esta estrategia, NO repagamos deuda automáticamente, solo no tomamos nueva.
+    return max(0, deuda_necesaria)
+
+# ==========================================
+# 🚀 MOTOR DE SIMULACIÓN
+# ==========================================
+
+if st.sidebar.button("EJECUTAR SIMULACIÓN", type="primary"):
+    
+    with st.spinner('Procesando lógica institucional...'):
+        # 1. Datos
+        data = descargar_datos(TICKER, FECHA_INICIO)
         fechas = data.index
         precios = data.values
         
+        # 2. Estado Inicial
         btc_acumulado = 0.0
         deuda_acumulada = 0.0
+        dinero_invertido = 0.0
         intereses_pagados = 0.0
-        dinero_invertido_tuyo = 0.0
-        estrategia_activa = False
-        pico_precio_mercado = 0.0
         
-        historia = {'Fecha': [], 'Equity_Neto': [], 'LTV': [], 'Evento_Compra': [], 'Drawdown_Mercado': []}
-        registros_tabla = []
+        estrategia_activa_dca = False # El DCA periódico espera al trigger
+        compra_inicial_hecha = False
+        pico_precio = 0.0
+        
+        historia = {
+            'Fecha': [], 'Equity': [], 'LTV': [], 'Drawdown': [], 
+            'Evento': [], 'Cash_Flow': [], 'Deuda_Flow': []
+        }
+        registros = []
         liquidado = False
-        fecha_muerte = None
+        fecha_liq = None
 
-        # Bucle de Simulación
         for i, fecha in enumerate(fechas):
-            precio_hoy = precios[i]
+            precio = precios[i]
             
-            # 1. Intereses Diarios
+            # --- A. CÁLCULOS BÁSICOS DIARIOS ---
+            
+            # 1. Interés Compuesto
             if deuda_acumulada > 0:
-                interes_diario = deuda_acumulada * (COSTE_DEUDA_APR / 365.0)
-                deuda_acumulada += interes_diario
-                intereses_pagados += interes_diario
+                interes = deuda_acumulada * (COSTE_DEUDA_APR / 365.0)
+                deuda_acumulada += interes
+                intereses_pagados += interes
             
-            # 2. Drawdown Mercado
-            if precio_hoy > pico_precio_mercado: pico_precio_mercado = precio_hoy
-            dd_mercado = 0.0
-            if pico_precio_mercado > 0:
-                dd_mercado = (pico_precio_mercado - precio_hoy) / pico_precio_mercado
+            # 2. Drawdown
+            if precio > pico_precio: pico_precio = precio
+            dd = 0.0
+            if pico_precio > 0: dd = (pico_precio - precio) / pico_precio
             
-            # 3. Activar Estrategia
-            if not estrategia_activa and dd_mercado >= UMBRAL_ACTIVACION:
-                estrategia_activa = True
+            # 3. Trigger Activación DCA (Solo la primera vez)
+            if not estrategia_activa_dca and dd >= UMBRAL_INICIO_DCA:
+                estrategia_activa_dca = True
             
-            # 4. LTV y Liquidación
-            valor_colateral = btc_acumulado * precio_hoy
-            ltv_actual = 0.0
-            if valor_colateral > 0: ltv_actual = deuda_acumulada / valor_colateral
+            # 4. Valoración y LTV
+            colateral_total = btc_acumulado * precio
+            ltv = 0.0
+            if colateral_total > 0: ltv = deuda_acumulada / colateral_total
             
-            if ltv_actual >= LTV_LIQUIDACION:
+            # 5. LIQUIDACIÓN CHECK
+            if ltv >= LIQ_THRESHOLD:
                 liquidado = True
-                fecha_muerte = fecha
+                fecha_liq = fecha
                 historia['Fecha'].append(fecha)
-                historia['Equity_Neto'].append(0)
-                historia['LTV'].append(ltv_actual)
-                historia['Evento_Compra'].append(0)
-                historia['Drawdown_Mercado'].append(dd_mercado)
-                registros_tabla.append({'Fecha': fecha, 'Evento': 'LIQUIDACIÓN', 'LTV (%)': ltv_actual*100})
+                historia['Equity'].append(0)
+                historia['LTV'].append(ltv)
+                historia['Drawdown'].append(dd)
+                historia['Evento'].append("💀 LIQ")
+                historia['Cash_Flow'].append(0)
+                historia['Deuda_Flow'].append(0)
+                registros.append({'Fecha': fecha, 'Tipo': 'LIQUIDACIÓN', 'LTV': ltv})
                 break
-
-            # 5. Compra Semanal (Lunes)
-            tipo_evento_grafico = 0 
             
-            if fecha.dayofweek == 0: 
-                if estrategia_activa:
-                    
-                    # Lógica de Decisión
-                    if ltv_actual > UMBRAL_LTV_DEFENSA:
-                        monto_bolsillo = MONTO_DEFENSA
-                        lev_factor = LEV_DEFENSA
-                        tipo_evento_grafico = 3.0
-                        etiqueta = "🛡️ DEFENSA"
-                    else:
-                        monto_bolsillo = MONTO_SEMANAL_BASE
-                        if dd_mercado > UMBRAL_AGRESIVO:
-                            lev_factor = LEV_AGRESIVO
-                            tipo_evento_grafico = LEV_AGRESIVO
-                            etiqueta = f"🔥 Agresivo {LEV_AGRESIVO}x"
-                        elif dd_mercado > UMBRAL_SAFE:
-                            lev_factor = LEV_MANTENIMIENTO
-                            tipo_evento_grafico = LEV_MANTENIMIENTO
-                            etiqueta = f"⚖️ Medio {LEV_MANTENIMIENTO}x"
-                        else:
-                            lev_factor = LEV_SAFE
-                            tipo_evento_grafico = LEV_SAFE
-                            etiqueta = f"✅ Safe {LEV_SAFE}x"
-                    
-                    # Ejecución
-                    total_compra = monto_bolsillo * lev_factor
-                    deuda_nueva = total_compra - monto_bolsillo
-                    
-                    btc_comprado = total_compra / precio_hoy
-                    btc_acumulado += btc_comprado
-                    deuda_acumulada += deuda_nueva
-                    dinero_invertido_tuyo += monto_bolsillo
-                    
-                    # Registro
-                    ltv_post = deuda_acumulada / (btc_acumulado * precio_hoy)
-                    registros_tabla.append({
-                        'Fecha': fecha.date(),
-                        'Precio': precio_hoy,
-                        'Tipo': etiqueta,
-                        'Cash Puesto': monto_bolsillo,
-                        'Deuda Nueva': deuda_nueva,
-                        'LTV Pre (%)': ltv_actual * 100,
-                        'LTV Post (%)': ltv_post * 100,
-                        'DD Mercado (%)': dd_mercado * 100
-                    })
+            # --- B. OPERATIVA DE COMPRA ---
+            
+            cash_a_invertir = 0.0
+            deuda_a_tomar = 0.0
+            tipo_evento = None # Para gráfica
+            etiqueta_tabla = ""
+            
+            # CASO 0: COMPRA INICIAL (Día 1, sin filtros)
+            if not compra_inicial_hecha:
+                cash_a_invertir = INVERSION_INICIAL
+                # Asumimos compra inicial SIN deuda para empezar sanos, o usuario podría querer parametrizarlo. 
+                # Por seguridad y lógica estándar: Initial = Equity puro.
+                deuda_a_tomar = 0 
+                compra_inicial_hecha = True
+                tipo_evento = "INICIO"
+                etiqueta_tabla = "Inversión Inicial"
+            
+            # CASO X: COMPRAS PERIÓDICAS
+            elif estrategia_activa_dca and es_dia_de_compra(fecha, FRECUENCIA, locals().get('DIA_SEMANA_IDX'), locals().get('DIA_MES')):
+                
+                # 1. Definir Monto Base (Cash)
+                cash_base = APORTACION_BASE
+                
+                # Chequeo Extraordinario (Nivel 2)
+                es_extra = False
+                if dd > UMBRAL_DD_EXTRA:
+                    cash_base += MONTO_EXTRA
+                    es_extra = True
+                
+                # Chequeo Defensa Crítica (Nivel 1) - Prioritario sobre todo
+                if ltv > TRIGGER_DEFENSA_LTV:
+                    cash_a_invertir = cash_base * MULTIPLO_DEFENSA
+                    target_ltv_hoy = 0.0 # No tomar deuda
+                    tipo_evento = "DEFENSA"
+                    etiqueta_tabla = f"🛡️ Defensa (LTV > {TRIGGER_DEFENSA_LTV*100:.0f}%)"
+                
                 else:
-                     registros_tabla.append({
-                        'Fecha': fecha.date(), 'Precio': precio_hoy, 'Tipo': '⏳ Espera', 
-                        'Cash Puesto': 0, 'Deuda Nueva': 0, 'LTV Pre (%)': 0, 'LTV Post (%)': 0, 'DD Mercado (%)': dd_mercado * 100
-                    })
+                    cash_a_invertir = cash_base
+                    
+                    # Decidir Target LTV según zona
+                    if dd < UMBRAL_DD_SAFE or ltv > UMBRAL_LTV_SAFE:
+                        target_ltv_hoy = 0.0 # Safe Mode
+                        tipo_evento = "SAFE"
+                        etiqueta_tabla = "✅ Safe Mode"
+                    elif dd > UMBRAL_DD_AGRESIVO:
+                        target_ltv_hoy = TARGET_LTV_AGRESIVO # Agresivo
+                        tipo_evento = "AGRESIVO"
+                        etiqueta_tabla = f"🔥 Agresivo (Target {target_ltv_hoy*100:.0f}%)"
+                    else:
+                        target_ltv_hoy = TARGET_LTV_BASE # Base
+                        tipo_evento = "BASE"
+                        etiqueta_tabla = f"⚖️ Base (Target {target_ltv_hoy*100:.0f}%)"
+                    
+                    if es_extra:
+                        tipo_evento += "+EXTRA"
+                        etiqueta_tabla += " + 💰 Extra"
 
+                # 2. Calcular Deuda necesaria para alcanzar Target LTV Global
+                # Solo pedimos deuda si no estamos en modo defensa/safe (donde target es 0)
+                if target_ltv_hoy > 0:
+                    deuda_a_tomar = calcular_deuda_para_target_ltv(colateral_total, deuda_acumulada, cash_a_invertir, target_ltv_hoy)
+                else:
+                    deuda_a_tomar = 0
+
+            # --- C. EJECUCIÓN ---
+            
+            if cash_a_invertir > 0:
+                total_compra = cash_a_invertir + deuda_a_tomar
+                btc_comprado = total_compra / precio
+                
+                btc_acumulado += btc_comprado
+                deuda_acumulada += deuda_a_tomar
+                dinero_invertido += cash_a_invertir
+                
+                # Registro Tabla
+                val_post = btc_acumulado * precio
+                ltv_post = deuda_acumulada / val_post
+                
+                registros.append({
+                    'Fecha': fecha.strftime('%Y-%m-%d'),
+                    'Precio': precio,
+                    'Tipo': etiqueta_tabla,
+                    'Cash ($)': cash_a_invertir,
+                    'Deuda Nueva ($)': deuda_a_tomar,
+                    'LTV Pre (%)': ltv * 100,
+                    'LTV Post (%)': ltv_post * 100,
+                    'DD (%)': dd * 100
+                })
+            
+            # --- D. GUARDAR HISTORIA DIARIA ---
             historia['Fecha'].append(fecha)
-            historia['Equity_Neto'].append(valor_colateral - deuda_acumulada)
-            historia['LTV'].append(ltv_actual)
-            historia['Evento_Compra'].append(tipo_evento_grafico)
-            historia['Drawdown_Mercado'].append(dd_mercado)
+            historia['Equity'].append((btc_acumulado * precio) - deuda_acumulada)
+            historia['LTV'].append(ltv)
+            historia['Drawdown'].append(dd)
+            historia['Evento'].append(tipo_evento) # Puede ser None
+            historia['Cash_Flow'].append(cash_a_invertir)
+            historia['Deuda_Flow'].append(deuda_a_tomar)
 
-        # DataFrames Finales
-        df_hist = pd.DataFrame(historia).set_index('Fecha')
-        df_registros = pd.DataFrame(registros_tabla)
-
-        # Benchmark (DCA Normal 1x)
-        df_bench = pd.DataFrame(data)
-        df_bench.columns = ['Precio']
-        df_bench['Es_Compra'] = np.where(df_bench.index.dayofweek == 0, 1, 0)
-        df_bench['Inv_Acum'] = df_bench['Es_Compra'].cumsum() * MONTO_SEMANAL_BASE
-        df_bench['Valor_Benchmark'] = (df_bench['Es_Compra'] * (MONTO_SEMANAL_BASE / df_bench['Precio'])).cumsum() * df_bench['Precio']
-
+        # DATAFRAMES
+        df = pd.DataFrame(historia).set_index('Fecha')
+        df_reg = pd.DataFrame(registros)
+        
         # ==========================================
-        # 📊 VISUALIZACIÓN DE RESULTADOS
+        # 📊 RESULTADOS
         # ==========================================
         
-        # 1. METRICAS PRINCIPALES (KPIs)
         st.divider()
         
-        dias_totales = (df_hist.index[-1] - df_hist.index[0]).days
-        anyos = dias_totales / 365.25
+        # MÉTRICAS
+        val_final = 0 if liquidado else df['Equity'].iloc[-1]
+        roi = -100 if liquidado else ((val_final - dinero_invertido) / dinero_invertido) * 100
         
-        # Cálculo Benchmark
-        bench_inv = df_bench['Inv_Acum'].iloc[-1]
-        bench_val = df_bench['Valor_Benchmark'].iloc[-1]
-        bench_roi = ((bench_val - bench_inv)/bench_inv)*100
-        bench_cagr = ((bench_val / bench_inv) ** (1/anyos)) - 1
-        
-        # Cálculo Estrategia
-        strat_inv = dinero_invertido_tuyo
-        strat_val = 0 if liquidado else df_hist['Equity_Neto'].iloc[-1]
-        strat_roi = -100 if liquidado else ((strat_val - strat_inv)/strat_inv)*100
-        strat_cagr = -1.0 if (liquidado or strat_val<=0) else ((strat_val / strat_inv) ** (1/anyos)) - 1
-
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Valor Neto Final", f"${strat_val:,.2f}", delta=f"{strat_roi:.2f}% ROI")
-        col2.metric("CAGR (Anualizado)", f"{strat_cagr*100:.2f}%", delta=f"vs {bench_cagr*100:.2f}% Bench")
-        col3.metric("Inversión Bolsillo", f"${strat_inv:,.0f}", help="Dinero real aportado")
-        col4.metric("Coste Deuda", f"${intereses_pagados:,.2f}", help="Intereses pagados al 5%")
-
+        col1.metric("Valor Neto Final", f"${val_final:,.2f}", delta=f"{roi:.2f}% ROI")
+        col2.metric("Inversión Bolsillo", f"${dinero_invertido:,.0f}")
+        col3.metric("Deuda Total", f"${deuda_acumulada:,.2f}")
+        col4.metric("Coste Intereses", f"${intereses_pagados:,.2f}", help="Dinero perdido en intereses")
+        
         if liquidado:
-            st.error(f"☠️ ESTRATEGIA LIQUIDADA EL {fecha_muerte.date()}")
+            st.error(f"☠️ ESTRATEGIA LIQUIDADA EL {fecha_liq.strftime('%Y-%m-%d')}. El LTV superó el {LIQ_THRESHOLD*100}%")
 
-        # 2. GRÁFICOS
-        st.subheader("Análisis Visual")
+        # GRÁFICOS
+        tab1, tab2 = st.tabs(["Gráficos de Análisis", "Tabla de Operaciones"])
         
-        fig, axes = plt.subplots(3, 1, figsize=(12, 16), sharex=True)
-        
-        # Equity
-        ax1 = axes[0]
-        ax1.set_title("1. Evolución del Patrimonio (Equity)", fontweight='bold')
-        ax1.plot(df_hist.index, df_hist['Equity_Neto'], label='Tu Estrategia (Neto)', color='blue')
-        ax1.plot(df_bench.index, df_bench['Valor_Benchmark'], label='Benchmark (DCA 1x)', color='gray', linestyle='--')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
-        
-        # Decisiones
-        ax2 = axes[1]
-        ax2.set_title("2. Mapa de Decisiones", fontweight='bold')
-        ax2.plot(df_hist.index, df_hist['Drawdown_Mercado']*-100, color='black', label='Mercado', alpha=0.5)
-        
-        defensa = df_hist[df_hist['Evento_Compra'] == 3.0]
-        agresivo = df_hist[df_hist['Evento_Compra'] == LEV_AGRESIVO]
-        medio = df_hist[df_hist['Evento_Compra'] == LEV_MANTENIMIENTO]
-        safe = df_hist[df_hist['Evento_Compra'] == LEV_SAFE]
-        
-        ax2.scatter(defensa.index, [-25]*len(defensa), marker='s', color='gold', s=80, label='DEFENSA', edgecolors='black', zorder=5)
-        ax2.scatter(agresivo.index, [-15]*len(agresivo), marker='^', color='purple', s=60, label='Agresivo', zorder=4)
-        ax2.scatter(medio.index, [-10]*len(medio), marker='o', color='cyan', s=30, label='Medio', zorder=3)
-        ax2.scatter(safe.index, [-5]*len(safe), marker='*', color='green', s=60, label='Safe', zorder=3)
-        ax2.legend(loc='lower left')
-        ax2.grid(True, alpha=0.3)
-        
-        # LTV
-        ax3 = axes[2]
-        ax3.set_title("3. Monitor de Riesgo (LTV)", fontweight='bold')
-        ax3.plot(df_hist.index, df_hist['LTV']*100, color='orange', label='LTV Real')
-        ax3.axhline(UMBRAL_LTV_DEFENSA*100, color='gold', linestyle='--', label='Umbral Defensa')
-        ax3.axhline(LTV_LIQUIDACION*100, color='red', linestyle='--', label='Liquidación')
-        ax3.set_ylim(0, 100)
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
-        
-        st.pyplot(fig)
-        
-        # 3. DATOS DETALLADOS
-        st.subheader("Registro de Operaciones")
-        with st.expander("Ver Tabla Detallada"):
-            st.dataframe(df_registros)
+        with tab1:
+            fig, axes = plt.subplots(3, 1, figsize=(12, 16), sharex=True)
             
-        # Botón descargar CSV
-        csv = df_registros.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Descargar Tabla en CSV",
-            data=csv,
-            file_name='simulacion_dca_sniper.csv',
-            mime='text/csv',
-        )
+            # 1. Equity
+            axes[0].set_title("1. Evolución del Valor Neto (Equity)", fontweight='bold')
+            axes[0].plot(df.index, df['Equity'], color='#1f77b4', linewidth=1.5, label='Valor Neto')
+            axes[0].fill_between(df.index, df['Equity'], 0, alpha=0.1, color='#1f77b4')
+            axes[0].legend()
+            axes[0].grid(True, alpha=0.3)
+            
+            # 2. Decisiones (Scatter)
+            axes[1].set_title("2. Mapa de Decisiones sobre Drawdown", fontweight='bold')
+            axes[1].plot(df.index, df['Drawdown']*-100, color='black', alpha=0.3, label='Drawdown Mercado')
+            
+            # Filtrar eventos para scatter
+            # Inicio
+            evt_ini = df[df['Evento'] == "INICIO"]
+            axes[1].scatter(evt_ini.index, [-5]*len(evt_ini), marker='*', s=150, color='gold', edgecolors='black', label='Inicio', zorder=10)
+            
+            # Defensa
+            evt_def = df[df['Evento'] == "DEFENSA"]
+            axes[1].scatter(evt_def.index, [-25]*len(evt_def), marker='s', s=80, color='red', label='Defensa', zorder=5)
+            
+            # Agresivo
+            evt_agg = df[df['Evento'].str.contains("AGRESIVO", na=False)]
+            axes[1].scatter(evt_agg.index, [-15]*len(evt_agg), marker='^', s=60, color='purple', label='Agresivo', zorder=4)
+            
+            # Base
+            evt_base = df[df['Evento'].str.contains("BASE", na=False)]
+            axes[1].scatter(evt_base.index, [-10]*len(evt_base), marker='o', s=30, color='cyan', label='Base', zorder=3)
+            
+            # Safe
+            evt_safe = df[df['Evento'].str.contains("SAFE", na=False)]
+            axes[1].scatter(evt_safe.index, [-2]*len(evt_safe), marker='.', s=50, color='green', label='Safe', zorder=3)
+
+            axes[1].set_ylabel("Drawdown (%)")
+            axes[1].legend(loc='lower left', ncol=3)
+            axes[1].grid(True, alpha=0.3)
+            
+            # 3. LTV
+            axes[2].set_title("3. Gestión del LTV", fontweight='bold')
+            axes[2].plot(df.index, df['LTV']*100, color='orange', label='LTV Real')
+            axes[2].axhline(LIQ_THRESHOLD*100, color='red', linestyle='--', label='Liquidación')
+            axes[2].axhline(TRIGGER_DEFENSA_LTV*100, color='brown', linestyle=':', label='Trigger Defensa')
+            axes[2].axhline(UMBRAL_LTV_SAFE*100, color='green', linestyle=':', label='Límite Safe')
+            axes[2].set_ylabel("LTV (%)")
+            axes[2].set_ylim(0, 100)
+            axes[2].legend(loc='upper left')
+            axes[2].grid(True, alpha=0.3)
+            
+            st.pyplot(fig)
+            
+        with tab2:
+            st.dataframe(df_reg)
+            csv = df_reg.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Descargar CSV", data=csv, file_name='simulacion_ltv_target.csv', mime='text/csv')
