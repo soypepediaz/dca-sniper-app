@@ -97,27 +97,46 @@ def calcular_cagr(valor_final, valor_inicial, dias):
     return (valor_final / valor_inicial) ** (1 / anyos) - 1
 
 def enviar_a_moosend(nombre, email):
-    """Envía el contacto a Moosend vía API"""
+    """Envía el contacto a Moosend con diagnóstico de errores"""
     try:
-        # Recuperamos la clave de los Secrets de Streamlit
+        # 1. Verificar si la clave existe
+        if "MOOSEND_API_KEY" not in st.secrets:
+            return False, "❌ Error Crítico: No has configurado el 'Secret'. Ve a Settings > Secrets en Streamlit."
+            
         api_key = st.secrets["MOOSEND_API_KEY"]
-        list_id = "75c61863-63dc-4fd3-9ed8-856aee90d04a"
+        list_id = "75c61863-63dc-4fd3-9ed8-856aee90d04a" # Tu ID confirmado
         
+        # 2. Construir la URL
         url = f"https://api.moosend.com/v3/subscribers/{list_id}/subscribe.json?apikey={api_key}"
-        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
-        data = {'Name': nombre, 'Email': email}
         
+        # 3. Datos
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        data = {
+            'Name': nombre, 
+            'Email': email,
+            'HasExternalDoubleOptIn': False
+        }
+        
+        # 4. Hacer la petición
         response = requests.post(url, json=data, headers=headers)
         
+        # 5. DIAGNÓSTICO (Esto es lo nuevo, para ver el error)
         if response.status_code == 200:
-            return True, "¡Suscrito correctamente! Te enviaremos info pronto."
+            resp_json = response.json()
+            
+            # Moosend devuelve Código 0 si todo fue bien
+            if resp_json.get("Code") == 0:
+                return True, "✅ ¡Suscrito correctamente! Revisa tu lista en Moosend."
+            else:
+                # Si falla, nos dice por qué (Ej: Email inválido, Usuario ya existe, etc)
+                error_msg = resp_json.get("Error", "Error desconocido")
+                return False, f"⚠️ Moosend rechazó la suscripción: {error_msg}"
+                
         else:
-            return False, f"Error Moosend: {response.text}"
+            return False, f"❌ Error de conexión (HTTP {response.status_code}): {response.text}"
             
     except Exception as e:
-        # Si no hay API key configurada o falla la conexión
-        return False, "Error de configuración: No se encontró la API Key o falló la conexión."
-
+        return False, f"❌ Error de código Python: {str(e)}"
 # ==========================================
 # 🚀 MOTOR DE SIMULACIÓN
 # ==========================================
@@ -425,4 +444,5 @@ if st.sidebar.button("EJECUTAR SIMULACIÓN", type="primary"):
                         st.warning(mensaje)
                 else:
                     st.error("Por favor, introduce un correo electrónico.")
+
 
