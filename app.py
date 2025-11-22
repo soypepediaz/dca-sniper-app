@@ -141,7 +141,20 @@ def enviar_a_moosend(nombre, email):
 # 🚀 MOTOR DE SIMULACIÓN
 # ==========================================
 
+# ==========================================
+# 🚀 MOTOR DE SIMULACIÓN CON MEMORIA
+# ==========================================
+
+# 1. Inicializar el estado si no existe
+if 'simulacion_realizada' not in st.session_state:
+    st.session_state.simulacion_realizada = False
+
+# 2. Si pulsan el botón, activamos el estado
 if st.sidebar.button("EJECUTAR SIMULACIÓN", type="primary"):
+    st.session_state.simulacion_realizada = True
+
+# 3. Comprobamos el estado en lugar del botón directo
+if st.session_state.simulacion_realizada:
     
     with st.spinner('Simulando Estrategia vs Benchmark...'):
         # 1. Datos
@@ -463,6 +476,7 @@ if st.sidebar.button("EJECUTAR SIMULACIÓN", type="primary"):
                         st.balloons() # ¡Un pequeño efecto visual de éxito!
                     else:
                         st.error(mensaje)
+
 
 
 
