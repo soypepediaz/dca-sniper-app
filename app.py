@@ -271,4 +271,124 @@ if st.sidebar.button("EJECUTAR SIMULACIÓN", type="primary"):
                         'Tipo': etiqueta_tabla,
                         'Cash ($)': cash_a_invertir,
                         'Deuda Nueva ($)': deuda_a_tomar,
-                        'LTV Post (%)
+                        'LTV Post (%)': ltv_post * 100,
+                        'DD (%)': dd * 100
+                    })
+                else:
+                    # La estrategia no compra, pero el Benchmark sí lo hizo arriba.
+                    tipo_evento = None
+
+            # --- C. GUARDAR HISTORIA DIARIA ---
+            historia['Fecha'].append(fecha)
+            historia['Equity_Strat'].append((btc_acumulado * precio) - deuda_acumulada)
+            historia['Equity_Bench'].append(bench_btc * precio)
+            historia['LTV'].append(ltv)
+            historia['Drawdown'].append(dd)
+            historia['Evento'].append(tipo_evento)
+
+        # DATAFRAMES
+        df = pd.DataFrame(historia).set_index('Fecha')
+        df_reg = pd.DataFrame(registros)
+        
+        # ==========================================
+        # 📊 RESULTADOS Y COMPARATIVA
+        # ==========================================
+        
+        st.divider()
+        
+        # CÁLCULOS FINALES
+        dias_totales = (df.index[-1] - df.index[0]).days
+        
+        # 1. ESTRATEGIA
+        strat_val_final = 0 if liquidado else df['Equity_Strat'].iloc[-1]
+        strat_roi = -100 if liquidado else ((strat_val_final - dinero_invertido) / dinero_invertido) * 100
+        strat_cagr = calcular_cagr(strat_val_final, dinero_invertido, dias_totales)
+        
+        # 2. BENCHMARK
+        bench_val_final = df['Equity_Bench'].iloc[-1]
+        bench_roi = ((bench_val_final - bench_invertido) / bench_invertido) * 100
+        bench_cagr = calcular_cagr(bench_val_final, bench_invertido, dias_totales)
+        
+        # --- TABLA RESUMEN (KPIS) ---
+        st.subheader("🏆 Comparativa de Rendimiento")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        # Estilo visual de métricas
+        col1.metric("Valor Neto Estrategia", f"${strat_val_final:,.2f}", f"{strat_roi:.2f}% ROI")
+        col2.metric("Valor Neto Benchmark", f"${bench_val_final:,.2f}", f"{bench_roi:.2f}% ROI")
+        
+        delta_cagr = (strat_cagr - bench_cagr) * 100
+        col3.metric("CAGR Estrategia vs Bench", f"{strat_cagr*100:.2f}%", f"{delta_cagr:+.2f}% Dif")
+        
+        # --- TABLA DETALLADA ---
+        resumen_data = {
+            "Métrica": ["Inversión Bolsillo (Total)", "Valor Final (Equity)", "ROI Total", "CAGR (Anualizado)", "Deuda Final / Coste"],
+            "🤖 Tu Estrategia (Target LTV)": [
+                f"${dinero_invertido:,.0f}", 
+                f"${strat_val_final:,.2f}", 
+                f"{strat_roi:.2f}%", 
+                f"{strat_cagr*100:.2f}%",
+                f"${deuda_acumulada:,.0f} (Int: ${intereses_pagados:,.0f})"
+            ],
+            "🐢 Benchmark (DCA Puro)": [
+                f"${bench_invertido:,.0f}", 
+                f"${bench_val_final:,.2f}", 
+                f"{bench_roi:.2f}%", 
+                f"{bench_cagr*100:.2f}%",
+                "$0"
+            ]
+        }
+        st.table(pd.DataFrame(resumen_data))
+        
+        if liquidado:
+            st.error(f"☠️ ATENCIÓN: La estrategia fue LIQUIDADA el {fecha_liq.strftime('%Y-%m-%d')}. El Benchmark hubiera sobrevivido.")
+
+        # --- GRÁFICOS ---
+        tab1, tab2 = st.tabs(["Gráficos Comparativos", "Registro Operaciones"])
+        
+        with tab1:
+            fig, axes = plt.subplots(3, 1, figsize=(12, 16), sharex=True)
+            
+            # 1. Equity Comparativo
+            axes[0].set_title("1. Estrategia vs Benchmark (Patrimonio Neto)", fontweight='bold')
+            axes[0].plot(df.index, df['Equity_Strat'], color='#1f77b4', linewidth=2, label='Tu Estrategia')
+            axes[0].plot(df.index, df['Equity_Bench'], color='gray', linestyle='--', linewidth=1.5, label='Benchmark DCA')
+            axes[0].fill_between(df.index, df['Equity_Strat'], df['Equity_Bench'], where=(df['Equity_Strat'] > df['Equity_Bench']), color='green', alpha=0.1, interpolate=True)
+            axes[0].fill_between(df.index, df['Equity_Strat'], df['Equity_Bench'], where=(df['Equity_Strat'] <= df['Equity_Bench']), color='red', alpha=0.1, interpolate=True)
+            axes[0].legend()
+            axes[0].grid(True, alpha=0.3)
+            
+            # 2. Mapa Decisiones
+            axes[1].set_title("2. Mapa de Decisiones", fontweight='bold')
+            axes[1].plot(df.index, df['Drawdown']*-100, color='black', alpha=0.3, label='Mercado')
+            
+            evt_def = df[df['Evento'] == "DEFENSA"]
+            axes[1].scatter(evt_def.index, [-25]*len(evt_def), marker='s', s=80, color='red', label='Defensa', zorder=5)
+            evt_agg = df[df['Evento'] == "AGRESIVO"]
+            axes[1].scatter(evt_agg.index, [-15]*len(evt_agg), marker='^', s=60, color='purple', label='Agresivo', zorder=4)
+            evt_base = df[df['Evento'] == "BASE"]
+            axes[1].scatter(evt_base.index, [-10]*len(evt_base), marker='o', s=30, color='cyan', label='Base', zorder=3)
+            evt_safe = df[df['Evento'] == "SAFE"]
+            axes[1].scatter(evt_safe.index, [-2]*len(evt_safe), marker='*', s=50, color='green', label='Safe', zorder=3)
+            
+            axes[1].set_ylabel("DD (%)")
+            axes[1].legend(loc='lower left', ncol=4)
+            axes[1].grid(True, alpha=0.3)
+            
+            # 3. LTV
+            axes[2].set_title("3. Monitor de Riesgo (LTV)", fontweight='bold')
+            axes[2].plot(df.index, df['LTV']*100, color='orange', label='LTV Real')
+            axes[2].axhline(LIQ_THRESHOLD*100, color='red', linestyle='--', label='Liquidación')
+            axes[2].axhline(TRIGGER_DEFENSA_LTV*100, color='brown', linestyle=':', label='Trigger Defensa')
+            axes[2].set_ylabel("LTV (%)")
+            axes[2].set_ylim(0, 100)
+            axes[2].legend(loc='upper left')
+            axes[2].grid(True, alpha=0.3)
+            
+            st.pyplot(fig)
+            
+        with tab2:
+            st.dataframe(df_reg)
+            csv = df_reg.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Descargar CSV", data=csv, file_name='simulacion_ltv_target.csv', mime='text/csv')
