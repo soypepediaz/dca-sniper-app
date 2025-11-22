@@ -419,30 +419,50 @@ if st.sidebar.button("EJECUTAR SIMULACIÓN", type="primary"):
         """
         st.markdown(informe_texto)
         
-        # ==========================================
-        # 📧 FORMULARIO MOOSEND
+       # ==========================================
+        # 📧 FORMULARIO MOOSEND (MEJORADO)
         # ==========================================
         st.markdown("---")
         st.subheader("📬 ¿Quieres descubrir más estrategias institucionales?")
         st.write("Suscríbete para recibir alertas sobre nuevos algoritmos DeFi y análisis de mercado.")
         
-        with st.form("moosend_form"):
+        # Usamos 'clear_on_submit=False' para que no se borren los datos si hay error
+        with st.form("moosend_form", clear_on_submit=False):
             col_form_1, col_form_2 = st.columns(2)
-            with col_form_1:
-                nombre_usuario = st.text_input("Nombre")
-            with col_form_2:
-                email_usuario = st.text_input("Correo Electrónico")
             
-            submit_btn = st.form_submit_button("Enviar y Suscribirme")
+            with col_form_1:
+                # El placeholder ayuda al usuario a saber qué poner
+                nombre_usuario = st.text_input("Nombre", placeholder="Ej: Satoshi")
+            
+            with col_form_2:
+                email_usuario = st.text_input("Correo Electrónico", placeholder="Ej: satoshi@bitcoin.org")
+            
+            # El botón de envío
+            submit_btn = st.form_submit_button("Enviar y Suscribirme", type="primary")
             
             if submit_btn:
-                if email_usuario:
-                    exito, mensaje = enviar_a_moosend(nombre_usuario, email_usuario)
+                # 1. Validación: ¿El nombre está vacío?
+                if not nombre_usuario.strip():
+                    st.warning("⚠️ Por favor, dinos tu nombre antes de enviar.")
+                
+                # 2. Validación: ¿El email está vacío?
+                elif not email_usuario.strip():
+                    st.error("⚠️ El campo de correo electrónico es obligatorio.")
+                
+                # 3. Validación: ¿El email parece válido? (Tiene @)
+                elif "@" not in email_usuario:
+                     st.error("⚠️ Por favor, introduce un correo electrónico válido.")
+                
+                # 4. Si todo está bien, intentamos enviar
+                else:
+                    with st.spinner("Suscribiendo..."):
+                        exito, mensaje = enviar_a_moosend(nombre_usuario, email_usuario)
+                        
                     if exito:
                         st.success(mensaje)
+                        st.balloons() # ¡Un pequeño efecto visual de éxito!
                     else:
-                        st.warning(mensaje)
-                else:
-                    st.error("Por favor, introduce un correo electrónico.")
+                        st.error(mensaje)
+
 
 
