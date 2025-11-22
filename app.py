@@ -366,31 +366,36 @@ if st.sidebar.button("EJECUTAR SIMULACIÓN", type="primary"):
         with tab2:
             st.dataframe(df_reg)
 
-        # ==========================================
-        # 📝 INFORME DINÁMICO
+       # ==========================================
+        # 📝 INFORME DINÁMICO (CORREGIDO)
         # ==========================================
         st.markdown("---")
         st.subheader("📄 Informe de Estrategia Generada")
         
         valor_defensa_aprox = APORTACION_BASE * MULTIPLO_DEFENSA
         
+        # NOTA: He añadido una barra invertida (\) antes de cada signo $ 
+        # para evitar que Streamlit lo interprete como fórmula matemática.
+        
         informe_texto = f"""
-        **1. Perfil de Inversión**
-        Has configurado una estrategia para **{TICKER}** con una inversión inicial de **${INVERSION_INICIAL}**.
-        El sistema realizará aportaciones periódicas de **${APORTACION_BASE}** con una frecuencia **{FRECUENCIA}**.
+        ### 1. Perfil de Inversión
+        Has configurado una estrategia para **{TICKER}** con una inversión inicial de **\${INVERSION_INICIAL}**.
+        
+        El sistema realizará aportaciones periódicas de **\${APORTACION_BASE}** con una frecuencia **{FRECUENCIA}**.
+        
         > *Objetivo:* Acumular activo aprovechando la volatilidad, utilizando deuda inteligente para potenciar el retorno sin comprometer la seguridad.
 
-        **2. Mecánica de Entrada (Sniper)**
+        ### 2. Mecánica de Entrada (Sniper)
         A diferencia de un DCA ciego, este algoritmo **permanecerá en espera** al inicio. No ejecutará la primera compra recurrente hasta que el mercado no sufra una corrección (Drawdown) superior al **{UMBRAL_INICIO_DCA*100:.0f}%**. Esto evita comprar sistemáticamente en techos de mercado.
 
-        **3. Gestión de Deuda (Target LTV)**
+        ### 3. Gestión de Deuda (Target LTV)
         La estrategia no utiliza un apalancamiento fijo, sino que ajusta dinámicamente tu deuda para mantener un nivel de riesgo constante sobre el total de tu cartera:
         * **Escenario Base:** Buscará mantener un LTV (Deuda/Colateral) del **{TARGET_LTV_BASE*100:.0f}%**.
         * **Escenario Agresivo:** Si el mercado cae más de un **{UMBRAL_DD_AGRESIVO*100:.0f}%**, el sistema aumentará el riesgo buscando un LTV del **{TARGET_LTV_AGRESIVO*100:.0f}%** para comprar más barato.
         * **Modo Seguro (Safe Mode):** Si el mercado está cerca de máximos (caída < **{UMBRAL_DD_SAFE*100:.0f}%**) o tu deuda ya es elevada (> **{UMBRAL_LTV_SAFE*100:.0f}%** LTV), el sistema **dejará de pedir prestado** y comprará solo con tu efectivo.
 
-        **4. Protocolos de Seguridad y Defensa**
-        * **Defensa Activa:** Si en algún momento tu LTV cruza la línea roja del **{TRIGGER_DEFENSA_LTV*100:.0f}%** (calculado sobre tu umbral de liquidación), el sistema activará el "Modo Pánico": inyectará **{MULTIPLO_DEFENSA}x** veces tu aportación habitual (aprox **${valor_defensa_aprox}**) sin deuda para diluir el riesgo inmediatamente.
+        ### 4. Protocolos de Seguridad y Defensa
+        * **Defensa Activa:** Si en algún momento tu LTV cruza la línea roja del **{TRIGGER_DEFENSA_LTV*100:.0f}%** (calculado sobre tu umbral de liquidación), el sistema activará el "Modo Pánico": inyectará **{MULTIPLO_DEFENSA}x** veces tu aportación habitual (aprox **\${valor_defensa_aprox}**) sin deuda para diluir el riesgo inmediatamente.
         * **Coste Financiero:** El modelo asume un coste de la deuda del **{COSTE_DEUDA_APR*100:.1f}%** anual, que se acumula diariamente en contra de tu patrimonio neto.
         """
         st.markdown(informe_texto)
@@ -420,3 +425,4 @@ if st.sidebar.button("EJECUTAR SIMULACIÓN", type="primary"):
                         st.warning(mensaje)
                 else:
                     st.error("Por favor, introduce un correo electrónico.")
+
