@@ -104,7 +104,7 @@ def enviar_a_moosend(nombre, email):
             return False, "❌ Error Crítico: No has configurado el 'Secret'. Ve a Settings > Secrets en Streamlit."
             
         api_key = st.secrets["MOOSEND_API_KEY"]
-        list_id = "75c61863-63dc-4fd3-9ed8-856aee90d04a" # Tu ID confirmado
+        list_id = "75c61863-63dc-4fd3-9ed8-856aee90d04a" 
         
         # 2. Construir la URL
         url = f"https://api.moosend.com/v3/subscribers/{list_id}/subscribe.json?apikey={api_key}"
@@ -120,23 +120,23 @@ def enviar_a_moosend(nombre, email):
         # 4. Hacer la petición
         response = requests.post(url, json=data, headers=headers)
         
-        # 5. DIAGNÓSTICO (Esto es lo nuevo, para ver el error)
+        # 5. DIAGNÓSTICO
         if response.status_code == 200:
             resp_json = response.json()
             
-            # Moosend devuelve Código 0 si todo fue bien
             if resp_json.get("Code") == 0:
-                return True, "✅ ¡Suscrito correctamente! Revisa tu lista en Moosend."
+                # --- CAMBIO AQUÍ: MENSAJE PARA EL USUARIO ---
+                return True, "✅ ¡Genial! Te has suscrito correctamente. Revisa tu bandeja de entrada pronto."
             else:
-                # Si falla, nos dice por qué (Ej: Email inválido, Usuario ya existe, etc)
                 error_msg = resp_json.get("Error", "Error desconocido")
-                return False, f"⚠️ Moosend rechazó la suscripción: {error_msg}"
+                # Aquí sí dejamos 'Moosend' porque es un mensaje de error técnico para ti
+                return False, f"⚠️ Hubo un problema con el registro: {error_msg}"
                 
         else:
-            return False, f"❌ Error de conexión (HTTP {response.status_code}): {response.text}"
+            return False, f"❌ Error de conexión (HTTP {response.status_code})"
             
     except Exception as e:
-        return False, f"❌ Error de código Python: {str(e)}"
+        return False, f"❌ Error interno: {str(e)}"
 # ==========================================
 # 🚀 MOTOR DE SIMULACIÓN
 # ==========================================
@@ -476,6 +476,7 @@ if st.session_state.simulacion_realizada:
                         st.balloons() # ¡Un pequeño efecto visual de éxito!
                     else:
                         st.error(mensaje)
+
 
 
 
